@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 import json
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 
@@ -13,38 +13,47 @@ taquillas = []
 cortes = {}
 gastos = {}
 
-# ✅ Nueva forma segura de conectar usando Secret File
+# ✅ Conexión a Google Sheets usando archivo secreto
 def connect_to_sheets():
     secret_path = "/etc/secrets/credentials.json"
     sheet_id = os.environ.get("GOOGLE_SPREADSHEET_ID")
-    
-    if not os.path.exists(secret_path) or not sheet_id:
+
+    if not os.path.exists(secret_path):
+        print("❌ Archivo de credenciales no encontrado.")
+        return None
+    if not sheet_id:
+        print("❌ GOOGLE_SPREADSHEET_ID no definido.")
         return None
 
     with open(secret_path, "r") as f:
         credentials_dict = json.load(f)
 
     scope = [
-        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+    creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
     client = gspread.authorize(creds)
-    return client.open_by_key(sheet_id)
+
+    try:
+        return client.open_by_key(sheet_id)
+    except gspread.SpreadsheetNotFound:
+        print("❌ Error: Google Sheet no encontrado. Verifica el ID y permisos.")
+        return None
 
 @app.route('/')
 def index():
     ingreso_total = sum(t['total'] for t in taquillas)
     gasto_total = sum(sum(g['monto'] for g in lista) for lista in gastos.values())
     neto_total = ingreso_total - gasto_total
-    
-    return render_template('index.html', 
-                         taquillas=taquillas, 
-                         cortes=cortes, 
-                         gastos=gastos,
-                         ingreso_total=ingreso_total,
-                         gasto_total=gasto_total,
-                         neto_total=neto_total)
+
+    return render_template('index.html',
+                           taquillas=taquillas,
+                           cortes=cortes,
+                           gastos=gastos,
+                           ingreso_total=ingreso_total,
+                           gasto_total=gasto_total,
+                           neto_total=neto_total)
 
 @app.route('/agregar_taquilla', methods=['POST'])
 def agregar_taquilla():
@@ -79,12 +88,12 @@ def agregar_gasto():
 def guardar_google_sheets():
     sheet = connect_to_sheets()
     if not sheet:
-        return "Google Sheets no configurado"
+        return "❌ Error: No se pudo conectar a Google Sheets. Revisa logs."
 
     hoy = datetime.now().strftime('%Y-%m-%d')
     try:
         worksheet = sheet.worksheet(hoy)
-    except:
+    except gspread.exceptions.WorksheetNotFound:
         worksheet = sheet.add_worksheet(title=hoy, rows="100", cols="10")
 
     worksheet.clear()
@@ -96,7 +105,7 @@ def guardar_google_sheets():
     worksheet.append_row(["Taquilla", "Inicial", "Final", "Precio", "Total"])
     for t in taquillas:
         worksheet.append_row([t['nombre'], t['inicial'], t['final'], t['precio'], t['total']])
-    
+
     worksheet.append_row([""])  # Espacio vacío
 
     # Sección: Gastos
