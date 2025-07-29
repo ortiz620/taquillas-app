@@ -13,19 +13,24 @@ taquillas = []
 cortes = {}
 gastos = {}
 
-# Conexión a Google Sheets
+# ✅ Nueva forma segura de conectar usando Secret File
 def connect_to_sheets():
-    credentials_path = "/etc/secrets/credentials.json"  # Ruta desde Render
-    sheet_id = os.environ.get("GOOGLE_SPREADSHEET_ID")  # Solo esto va como env var
-
-    if not os.path.exists(credentials_path) or not sheet_id:
+    secret_path = "/etc/secrets/credentials.json"
+    sheet_id = os.environ.get("GOOGLE_SPREADSHEET_ID")
+    
+    if not os.path.exists(secret_path) or not sheet_id:
         return None
 
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(credentials_path, scope)
+    with open(secret_path, "r") as f:
+        credentials_dict = json.load(f)
+
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key(sheet_id)
-    return sheet
+    return client.open_by_key(sheet_id)
 
 @app.route('/')
 def index():
@@ -117,7 +122,6 @@ def guardar_google_sheets():
     worksheet.append_row(["Ingreso Neto", neto])
 
     return redirect(url_for('index'))
-
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
