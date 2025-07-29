@@ -15,14 +15,14 @@ gastos = {}
 
 # Conexión a Google Sheets
 def connect_to_sheets():
-    credentials_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
-    sheet_id = os.environ.get("GOOGLE_SPREADSHEET_ID")
-    if not credentials_json or not sheet_id:
+    credentials_path = "/etc/secrets/credentials.json"  # Ruta desde Render
+    sheet_id = os.environ.get("GOOGLE_SPREADSHEET_ID")  # Solo esto va como env var
+
+    if not os.path.exists(credentials_path) or not sheet_id:
         return None
 
-    credentials_dict = json.loads(credentials_json)
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_name(credentials_path, scope)
     client = gspread.authorize(creds)
     sheet = client.open_by_key(sheet_id)
     return sheet
@@ -118,7 +118,6 @@ def guardar_google_sheets():
 
     return redirect(url_for('index'))
 
-    import os
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
