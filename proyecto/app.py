@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 import json
 import gspread
-from google.oauth2.service_account import Credentials
+from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
@@ -13,47 +13,38 @@ taquillas = []
 cortes = {}
 gastos = {}
 
-# ✅ Conexión a Google Sheets usando archivo secreto
+# ✅ Conexión segura a Google Sheets usando archivo de credenciales
 def connect_to_sheets():
     secret_path = "/etc/secrets/credentials.json"
     sheet_id = os.environ.get("GOOGLE_SPREADSHEET_ID")
-
-    if not os.path.exists(secret_path):
-        print("❌ Archivo de credenciales no encontrado.")
-        return None
-    if not sheet_id:
-        print("❌ GOOGLE_SPREADSHEET_ID no definido.")
+    
+    if not os.path.exists(secret_path) or not sheet_id:
         return None
 
     with open(secret_path, "r") as f:
         credentials_dict = json.load(f)
 
     scope = [
-        "https://www.googleapis.com/auth/spreadsheets",
+        "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds = Credentials.from_service_account_info(credentials_dict, scopes=scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
     client = gspread.authorize(creds)
-
-    try:
-        return client.open_by_key(sheet_id)
-    except gspread.SpreadsheetNotFound:
-        print("❌ Error: Google Sheet no encontrado. Verifica el ID y permisos.")
-        return None
+    return client.open_by_key(sheet_id)
 
 @app.route('/')
 def index():
     ingreso_total = sum(t['total'] for t in taquillas)
     gasto_total = sum(sum(g['monto'] for g in lista) for lista in gastos.values())
     neto_total = ingreso_total - gasto_total
-
-    return render_template('index.html',
-                           taquillas=taquillas,
-                           cortes=cortes,
-                           gastos=gastos,
-                           ingreso_total=ingreso_total,
-                           gasto_total=gasto_total,
-                           neto_total=neto_total)
+    
+    return render_template('index.html', 
+                         taquillas=taquillas, 
+                         cortes=cortes, 
+                         gastos=gastos,
+                         ingreso_total=ingreso_total,
+                         gasto_total=gasto_total,
+                         neto_total=neto_total)
 
 @app.route('/agregar_taquilla', methods=['POST'])
 def agregar_taquilla():
@@ -88,12 +79,12 @@ def agregar_gasto():
 def guardar_google_sheets():
     sheet = connect_to_sheets()
     if not sheet:
-        return "❌ Error: No se pudo conectar a Google Sheets. Revisa logs."
+        return "Google Sheets no configurado"
 
     hoy = datetime.now().strftime('%Y-%m-%d')
     try:
         worksheet = sheet.worksheet(hoy)
-    except gspread.exceptions.WorksheetNotFound:
+    except:
         worksheet = sheet.add_worksheet(title=hoy, rows="100", cols="10")
 
     worksheet.clear()
@@ -105,7 +96,7 @@ def guardar_google_sheets():
     worksheet.append_row(["Taquilla", "Inicial", "Final", "Precio", "Total"])
     for t in taquillas:
         worksheet.append_row([t['nombre'], t['inicial'], t['final'], t['precio'], t['total']])
-
+    
     worksheet.append_row([""])  # Espacio vacío
 
     # Sección: Gastos
@@ -132,6 +123,7 @@ def guardar_google_sheets():
 
     return redirect(url_for('index'))
 
+# ✅ Corrección: Render define el puerto automáticamente, no lo fuerces
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
