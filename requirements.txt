@@ -1,3 +1,5 @@
-Flask
+flask
 gspread
 oauth2client
+pandas
+openpyxl>=3.1.2
