@@ -1,5 +1,9 @@
 flask
 gspread
 oauth2client
+google-auth
+google-auth-oauthlib
+requests-oauthlib
 pandas
-openpyxl>=3.1.2
+openpyxl
+et-xmlfile
