@@ -1,0 +1,148 @@
+# Requiere: Python + Flask + Google Sheets
+
+from flask import Flask, render_template_string, request, redirect, url_for
+from datetime import datetime
+import os
+import json
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
+app = Flask(__name__)
+
+taquillas = []
+cortes = {}
+gastos = {}
+
+# Conexión a Google Sheets
+def connect_to_sheets():
+    credentials_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
+    sheet_id = os.environ.get("GOOGLE_SPREADSHEET_ID")
+    if not credentials_json or not sheet_id:
+        return None, None
+
+    credentials_dict = json.loads(credentials_json)
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(sheet_id)
+    return sheet.worksheet("Cortes"), sheet.worksheet("Gastos")
+
+# HTML
+template_html = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Taquillas</title>
+    <style>
+        body {
+            background-color: #0C2C55;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        input, select {
+            margin: 5px;
+            padding: 5px;
+        }
+        input[type="submit"] {
+            background-color: #FF4C00;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+        }
+        .taquilla {
+            background-color: #143D6B;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Control de Taquillas</h1>
+
+    <h2>Agregar Taquilla</h2>
+    <form method="post" action="/agregar">
+        Nombre: <input type="text" name="nombre" required>
+        Precio por boleto: <input type="number" name="precio" step="0.01" required>
+        <input type="submit" value="Agregar">
+    </form>
+
+    <h2>Agregar Gasto</h2>
+    <form method="post" action="/agregar_gasto">
+        Descripción: <input type="text" name="descripcion" required>
+        Monto: <input type="number" name="monto" step="0.01" required>
+        <input type="submit" value="Guardar Gasto">
+    </form>
+
+    <h2>Registrar Ventas</h2>
+    <form method="post" action="/calcular_todo">
+        {% for t in taquillas %}
+            <div class="taquilla">
+                <h3>{{ t['nombre'] }} (Precio: ${{ t['precio'] }})</h3>
+                Boleto inicial: <input type="number" name="inicial_{{ loop.index0 }}" required>
+                Boleto final: <input type="number" name="final_{{ loop.index0 }}" required>
+                <form method="post" action="/eliminar/{{ loop.index0 }}" style="display:inline;">
+                    <input type="submit" value="Eliminar Taquilla">
+                </form>
+                <form method="get" action="/editar/{{ loop.index0 }}" style="display:inline;">
+                    <input type="submit" value="Editar Taquilla">
+                </form>
+            </div>
+        {% endfor %}
+        <input type="submit" value="Calcular Todo">
+    </form>
+
+    <h2>Cortes del Día</h2>
+    {% for dia in cortes %}
+        <p>
+            <strong>{{ dia }}</strong><br>
+            Ingreso bruto: ${{ cortes[dia] }}<br>
+            Gasto bruto: ${{ gastos.get(dia, 0.0) }}<br>
+            Ingreso neto: ${{ cortes[dia] - gastos.get(dia, 0.0) }}
+        </p>
+    {% endfor %}
+
+    <h2>Resumen General</h2>
+    <p>
+        Ingreso total acumulado: ${{ ingreso_total }}<br>
+        Gasto total acumulado: ${{ gasto_total }}<br>
+        Ingreso neto total: ${{ ingreso_total - gasto_total }}
+    </p>
+</body>
+</html>
+'''
+
+@app.route('/')
+def index():
+    ingreso_total = sum(cortes.values())
+    gasto_total = sum(gastos.values())
+    return render_template_string(template_html, taquillas=taquillas, cortes=cortes, gastos=gastos,
+                                  ingreso_total=ingreso_total, gasto_total=gasto_total)
+
+@app.route('/agregar', methods=['POST'])
+def agregar():
+    nombre = request.form['nombre']
+    precio = float(request.form['precio'])
+    taquillas.append({'nombre': nombre, 'precio': precio, 'resultado': None})
+    return redirect(url_for('index'))
+
+@app.route('/editar/<int:index>', methods=['GET', 'POST'])
+def editar(index):
+    if request.method == 'POST':
+        nombre = request.form['nombre']
+        precio = float(request.form['precio'])
+        taquillas[index]['nombre'] = nombre
+        taquillas[index]['precio'] = precio
+        return redirect(url_for('index'))
+    else:
+        taquilla = taquillas[index]
+        form = f'''
+        <form method="post">
+            <h2>Editar Taquilla #{index+1}</h2>
+            Nombre: <input type="text" name="nombre" value="{taquilla['nombre']}" required><br>
+            Precio: <input type="number" name="precio" value="{taquilla['precio']}" step="0.01" required><br>
+            <input type="submit" value="Guardar Cambios">
+        </form>
+        '''
+        return form
